@@ -1,0 +1,41 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Tempo.Api</RootNamespace>
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <UserSecretsId>700c74f8-832a-4ac8-8e55-2c9e217086cf</UserSecretsId>
+  </PropertyGroup>
+
+  <!--
+    `dotnet run` also starts the Vite dev server (client/) through the ASP.NET Core SPA proxy.
+    It is enabled by ASPNETCORE_HOSTINGSTARTUPASSEMBLIES in Properties/launchSettings.json, so it
+    only applies to local runs, not to tests or published builds.
+  -->
+  <PropertyGroup>
+    <SpaRoot>..\..\client\</SpaRoot>
+    <SpaProxyServerUrl>http://localhost:5173</SpaProxyServerUrl>
+    <SpaProxyLaunchCommand>npm run dev</SpaProxyLaunchCommand>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Tempo.Api.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.SpaProxy" Version="10.0.15" />
+  </ItemGroup>
+
+  <!-- Install the client's npm packages on the first Debug build if they are missing. -->
+  <Target Name="EnsureClientNodeModules" BeforeTargets="Build" Condition=" '$(Configuration)' == 'Debug' And !Exists('$(SpaRoot)node_modules') ">
+    <Exec Command="node --version" ContinueOnError="true">
+      <Output TaskParameter="ExitCode" PropertyName="NodeExitCode" />
+    </Exec>
+    <Error Condition="'$(NodeExitCode)' != '0'" Text="Node.js is required to run the client. Install it from https://nodejs.org/ and try again." />
+    <Message Importance="high" Text="Installing client npm packages. This can take a minute..." />
+    <Exec WorkingDirectory="$(SpaRoot)" Command="npm install" />
+  </Target>
+
+</Project>
