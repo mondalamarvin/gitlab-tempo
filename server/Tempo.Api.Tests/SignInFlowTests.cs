@@ -18,6 +18,9 @@ public class SignInFlowTests
     private sealed class FakeGitLab : HttpMessageHandler
     {
         public bool IsTeamMember { get; set; } = true;
+        /// <summary>Alice's role in "team": 30 = Developer, 40 = Maintainer, 50 = Owner.</summary>
+        public int TeamAccessLevel { get; set; } = 30;
+        public bool IsAdmin { get; set; }
         public bool AllowRefresh { get; set; } = true;
         public int Refreshes { get; private set; }
         public List<string> GraphQlTokens { get; } = [];
@@ -35,10 +38,12 @@ public class SignInFlowTests
                 "/oauth/token" when body.Contains("grant_type=refresh_token") && body.Contains("refresh_token=rt&") && AllowRefresh =>
                     Refreshed(),
                 "/api/v4/user" when validToken =>
-                    Json("""{ "id": 42, "username": "alice", "name": "Alice", "email": "alice@example.com", "state": "active" }"""),
+                    Json($$"""{ "id": 42, "username": "alice", "name": "Alice", "email": "alice@example.com", "state": "active", "is_admin": {{(IsAdmin ? "true" : "false")}} }"""),
                 "/api/v4/groups/team/members/all/42" when validToken =>
-                    IsTeamMember ? Json("""{ "id": 42, "state": "active" }""") : new HttpResponseMessage(HttpStatusCode.NotFound),
-                "/api/graphql" => GraphQl(auth),
+                    IsTeamMember
+                        ? Json($$"""{ "id": 42, "state": "active", "access_level": {{TeamAccessLevel}} }""")
+                        : new HttpResponseMessage(HttpStatusCode.NotFound),
+                "/api/graphql" => GraphQl(auth, body),
                 _ => new HttpResponseMessage(HttpStatusCode.BadRequest),
             };
         }
@@ -49,9 +54,31 @@ public class SignInFlowTests
             return Json("""{ "access_token": "refreshed-token", "refresh_token": "rt2", "expires_in": 7200, "token_type": "Bearer" }""");
         }
 
-        private HttpResponseMessage GraphQl(string? token)
+        private HttpResponseMessage GraphQl(string? token, string body)
         {
             GraphQlTokens.Add(token ?? "");
+            // "team" has 2h from Alice and 3h from Bob on Monday 2026-11-16 (10:00 in Manila).
+            if (body.Contains("timelogs"))
+                return Json("""
+                    { "data": { "group": { "name": "Team", "fullPath": "team", "webUrl": null, "timelogs": {
+                      "pageInfo": { "hasNextPage": false, "endCursor": null },
+                      "nodes": [
+                        { "spentAt": "2026-11-16T02:00:00Z", "timeSpent": 7200, "summary": null, "user": { "username": "alice", "name": "Alice", "avatarUrl": null },
+                          "issue": { "iid": "1", "title": "One", "webUrl": null }, "mergeRequest": null, "project": { "fullPath": "team/app" } },
+                        { "spentAt": "2026-11-16T02:00:00Z", "timeSpent": 10800, "summary": null, "user": { "username": "bob", "name": "Bob", "avatarUrl": null },
+                          "issue": { "iid": "2", "title": "Two", "webUrl": null }, "mergeRequest": null, "project": { "fullPath": "team/app" } }
+                      ] } } } }
+                    """);
+            if (body.Contains("groupMembers"))
+                return Json("""
+                    { "data": { "group": { "groupMembers": {
+                      "pageInfo": { "hasNextPage": false, "endCursor": null },
+                      "nodes": [
+                        { "user": { "username": "alice", "name": "Alice", "avatarUrl": null, "bot": false, "state": "active" } },
+                        { "user": { "username": "bob", "name": "Bob", "avatarUrl": null, "bot": false, "state": "active" } },
+                        { "user": { "username": "carol", "name": "Carol", "avatarUrl": null, "bot": false, "state": "active" } }
+                      ] } } } }
+                    """);
             return Json("""{ "data": { "currentUser": { "username": "alice", "name": "Alice", "avatarUrl": null } } }""");
         }
 
@@ -151,6 +178,56 @@ public class SignInFlowTests
         };
         Assert.Equal(HttpStatusCode.BadRequest, (await http.SendAsync(other)).StatusCode);
         Assert.Empty(gitLab.GraphQlTokens);
+    }
+
+    private static async Task<JsonElement> ReportAsync(HttpClient http)
+    {
+        var response = await http.GetAsync("/api/report?group=team&from=2026-11-16");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return doc.RootElement.Clone();
+    }
+
+    private static string[] Usernames(JsonElement report) =>
+        report.GetProperty("people").EnumerateArray().Select(p => p.GetProperty("username").GetString()!).Order().ToArray();
+
+    [Theory]
+    [InlineData(10)] // Guest
+    [InlineData(20)] // Reporter
+    [InlineData(30)] // Developer
+    public async Task Below_maintainer_the_report_holds_only_your_own_time(int accessLevel)
+    {
+        var (app, gitLab) = Create();
+        using var _ = app;
+        gitLab.TeamAccessLevel = accessLevel;
+        var http = app.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        await SignInAsync(http);
+
+        var report = await ReportAsync(http);
+
+        Assert.True(report.GetProperty("ownTimeOnly").GetBoolean());
+        Assert.Equal(["alice"], Usernames(report)); // Bob's time and the other members are not sent at all
+        Assert.Equal(2, report.GetProperty("team").GetProperty("totalHours").GetDouble());
+    }
+
+    [Theory]
+    [InlineData(40, false)] // Maintainer
+    [InlineData(50, false)] // Owner
+    [InlineData(30, true)]  // Developer who is a GitLab admin
+    public async Task Maintainers_owners_and_admins_see_the_whole_group(int accessLevel, bool isAdmin)
+    {
+        var (app, gitLab) = Create();
+        using var _ = app;
+        gitLab.TeamAccessLevel = accessLevel;
+        gitLab.IsAdmin = isAdmin;
+        var http = app.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        await SignInAsync(http);
+
+        var report = await ReportAsync(http);
+
+        Assert.False(report.GetProperty("ownTimeOnly").GetBoolean());
+        Assert.Equal(["alice", "bob", "carol"], Usernames(report));
+        Assert.Equal(5, report.GetProperty("team").GetProperty("totalHours").GetDouble());
     }
 
     [Fact]

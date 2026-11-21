@@ -17,7 +17,9 @@ public sealed record WeeklyReport(
     TeamSummary Team,
     ExcludedSummary Excluded,
     bool MembersIncluded,
-    DateTimeOffset GeneratedAt);
+    DateTimeOffset GeneratedAt,
+    // True when the signed-in person may only see their own time (below Maintainer in the group).
+    bool OwnTimeOnly = false);
 
 public sealed record WeekInfo(string Key, DateOnly Start, DateOnly End, string Label);
 

@@ -86,6 +86,8 @@ export interface WeeklyReport {
   };
   membersIncluded: boolean;
   generatedAt: string;
+  /** True when the signed-in person is below Maintainer in the group, so the report holds only their own time. */
+  ownTimeOnly: boolean;
 }
 
 export interface ReportQuery {

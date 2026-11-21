@@ -84,18 +84,56 @@ public sealed class GitLabAccess(IHttpClientFactory httpFactory, IMemoryCache ca
             .Any(a => a.Equals(user.Username, StringComparison.OrdinalIgnoreCase)
                       || (user.Email is { } email && a.Equals(email, StringComparison.OrdinalIgnoreCase)));
 
-    private async Task<bool> IsGroupMemberAsync(GitLabInstanceOptions instance, string accessToken, string groupPath, long userId, CancellationToken ct)
+    /// <summary>GitLab's Maintainer role. Maintainers and Owners (50) see everyone's time in a report.</summary>
+    public const int MaintainerAccessLevel = 40;
+
+    /// <summary>
+    /// True when the user may see everyone's time in the group's report: a Maintainer or Owner of the
+    /// group (directly or through a parent group), or a GitLab administrator. Everyone else sees only
+    /// their own time. Cached briefly, since a report page asks on every refresh.
+    /// </summary>
+    public async Task<bool> CanSeeWholeGroupAsync(GitLabInstanceOptions instance, string accessToken, long userId, string groupPath, CancellationToken ct)
+    {
+        var key = $"gitlab-whole-group:{instance.Id}:{userId}:{groupPath.ToLowerInvariant()}";
+        if (cache.TryGetValue(key, out bool cached)) return cached;
+
+        var membership = await GetMembershipAsync(instance, accessToken, groupPath, userId, ct);
+        var allowed = membership is { Active: true, AccessLevel: >= MaintainerAccessLevel } || await IsAdminAsync(instance, accessToken, ct);
+
+        cache.Set(key, allowed, TimeSpan.FromMinutes(5));
+        return allowed;
+    }
+
+    private async Task<bool> IsAdminAsync(GitLabInstanceOptions instance, string accessToken, CancellationToken ct)
+    {
+        // GitLab only includes is_admin for administrators looking at their own account.
+        using var response = await SendAsync(HttpMethod.Get, $"{instance.BaseUrl}/api/v4/user", accessToken, ct);
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException($"GitLab returned HTTP {(int)response.StatusCode} for /api/v4/user.");
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+        return doc.RootElement.TryGetProperty("is_admin", out var admin) && admin.ValueKind == JsonValueKind.True;
+    }
+
+    private async Task<bool> IsGroupMemberAsync(GitLabInstanceOptions instance, string accessToken, string groupPath, long userId, CancellationToken ct) =>
+        await GetMembershipAsync(instance, accessToken, groupPath, userId, ct) is { Active: true };
+
+    /// <summary>The user's membership of the group, or null when they are not a member (or can't see the group).</summary>
+    private async Task<(bool Active, int AccessLevel)?> GetMembershipAsync(
+        GitLabInstanceOptions instance, string accessToken, string groupPath, long userId, CancellationToken ct)
     {
         // members/all includes inherited members. A 404 means "not a member" or "can't see the group".
         var url = $"{instance.BaseUrl}/api/v4/groups/{Uri.EscapeDataString(groupPath)}/members/all/{userId}";
         using var response = await SendAsync(HttpMethod.Get, url, accessToken, ct);
-        if (response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Forbidden) return false;
+        if (response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Forbidden) return null;
         if (!response.IsSuccessStatusCode)
             throw new InvalidOperationException($"GitLab returned HTTP {(int)response.StatusCode} checking membership of '{groupPath}'.");
 
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+        var root = doc.RootElement;
         // Members waiting for approval ("awaiting") or blocked don't count.
-        return Str(doc.RootElement, "state") is not { } state || state.Equals("active", StringComparison.OrdinalIgnoreCase);
+        var active = Str(root, "state") is not { } state || state.Equals("active", StringComparison.OrdinalIgnoreCase);
+        var level = root.TryGetProperty("access_level", out var l) && l.TryGetInt32(out var n) ? n : 0;
+        return (active, level);
     }
 
     /// <summary>

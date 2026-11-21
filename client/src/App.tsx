@@ -168,12 +168,20 @@ function ReportPage({ connection, session }: { connection: CurrentConnection; se
         {report && !error && (
           <div className={isFetching ? "opacity-60 transition-opacity" : "transition-opacity"}>
             <div className="grid gap-6">
+              {report.ownTimeOnly && (
+                <Alert>
+                  <Info />
+                  <span>
+                    You're seeing only your own time. Maintainers and owners of {report.group.name} see everyone's.
+                  </span>
+                </Alert>
+              )}
               <SummaryCards report={report} />
 
               <Card className="gap-0 py-0">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
                   <div className="text-sm font-medium">Hours per person</div>
-                  {report.membersIncluded && (
+                  {report.membersIncluded && !report.ownTimeOnly && (
                     <label className="text-muted-foreground flex items-center gap-2 text-sm">
                       <input
                         type="checkbox"

@@ -5,8 +5,13 @@ namespace Tempo.Api.Reports;
 
 public sealed class ReportService(GitLabClient gitLab, IOptions<TempoOptions> options, TimeProvider clock, ILogger<ReportService> logger)
 {
+    /// <param name="onlyUsername">
+    /// When set, the report holds only this person's time (and only them as a member); everyone
+    /// else's entries are dropped here, before anything is sent to the browser.
+    /// </param>
     public async Task<WeeklyReport> GetWeeklyReportAsync(
-        GitLabInstanceOptions instance, string token, string groupPath, DateOnly from, DateOnly to, bool includeMembers, CancellationToken ct)
+        GitLabInstanceOptions instance, string token, string groupPath, DateOnly from, DateOnly to, bool includeMembers, CancellationToken ct,
+        string? onlyUsername = null)
     {
         var opts = options.Value;
         var tz = opts.ResolveTimeZone();
@@ -20,7 +25,15 @@ public sealed class ReportService(GitLabClient gitLab, IOptions<TempoOptions> op
         var timelogs = result.Timelogs.Select(l => l with { User = GitLabClient.WithAbsoluteAvatar(l.User, instance) });
         var members = membersTask.Result?.Select(u => GitLabClient.WithAbsoluteAvatar(u, instance));
 
-        return ReportBuilder.Build(result.Group, from, to, timelogs, members, tz, opts.ResolvedWorkDays, clock.GetUtcNow());
+        if (onlyUsername is not null)
+        {
+            bool IsSelf(GitLabUser u) => u.Username.Equals(onlyUsername, StringComparison.OrdinalIgnoreCase);
+            timelogs = timelogs.Where(l => IsSelf(l.User));
+            members = members?.Where(IsSelf);
+        }
+
+        var report = ReportBuilder.Build(result.Group, from, to, timelogs, members, tz, opts.ResolvedWorkDays, clock.GetUtcNow());
+        return onlyUsername is null ? report : report with { OwnTimeOnly = true };
     }
 
     private async Task<IReadOnlyList<GitLabUser>?> TryGetMembersAsync(GitLabInstanceOptions instance, string token, string groupPath, CancellationToken ct)

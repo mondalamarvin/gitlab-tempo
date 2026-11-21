@@ -6,7 +6,7 @@ import type { WeeklyReport } from "@/lib/types";
 export function SummaryCards({ report }: { report: WeeklyReport }) {
   const t = report.team;
   const items = [
-    { icon: Clock, label: "Team total", value: `${formatHours(t.totalHours)} h`, hint: report.weeks.length > 1 ? `${report.weeks.length} weeks` : "this week" },
+    { icon: Clock, label: report.ownTimeOnly ? "Your total" : "Team total", value: `${formatHours(t.totalHours)} h`, hint: report.weeks.length > 1 ? `${report.weeks.length} weeks` : "this week" },
     {
       icon: Users,
       label: "People with time",

@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Options;
 using Tempo.Api;
@@ -89,7 +91,10 @@ api.MapGet("/report", async (
         return Results.Problem($"A report can span at most {o.Value.MaxWeeks} weeks (asked for {weeks}).", statusCode: 400);
 
     return await Run(async () =>
-        Results.Ok(await reports.GetWeeklyReportAsync(instance, token, groupPath, from, end, includeMembers ?? true, ct)));
+    {
+        var onlyUsername = await OwnTimeOnlyUsernameAsync(http, instance, token, groupPath, o.Value, ct);
+        return Results.Ok(await reports.GetWeeklyReportAsync(instance, token, groupPath, from, end, includeMembers ?? true, ct, onlyUsername));
+    });
 });
 
 app.MapFallbackToFile("index.html");
@@ -117,6 +122,28 @@ static async Task<string?> ResolveTokenAsync(HttpContext http, GitLabInstanceOpt
     var header = http.Request.Headers["X-GitLab-Token"].ToString();
     if (!string.IsNullOrWhiteSpace(header)) return header.Trim();
     return string.IsNullOrWhiteSpace(instance.ServerToken) ? null : instance.ServerToken;
+}
+
+// With sign-in, Maintainers and Owners of the group (and GitLab admins) see everyone's time; anyone
+// else sees only their own. Returns the username to limit the report to, or null for the whole group.
+static async Task<string?> OwnTimeOnlyUsernameAsync(
+    HttpContext http, GitLabInstanceOptions instance, string token, string groupPath, TempoOptions options, CancellationToken ct)
+{
+    if (!UsesSignIn(instance, options)) return null;
+
+    var username = http.User.FindFirstValue(ClaimTypes.Name);
+    if (!long.TryParse(http.User.FindFirstValue(ClaimTypes.NameIdentifier), CultureInfo.InvariantCulture, out var userId) || username is null)
+        throw new GitLabException(401, "Your session is missing your GitLab account. Sign in again.");
+
+    var access = http.RequestServices.GetRequiredService<GitLabAccess>();
+    try
+    {
+        return await access.CanSeeWholeGroupAsync(instance, token, userId, groupPath, ct) ? null : username;
+    }
+    catch (InvalidOperationException ex)
+    {
+        throw new GitLabException(502, $"Could not check your role in '{groupPath}': {ex.Message}");
+    }
 }
 
 static IResult MissingToken() =>
