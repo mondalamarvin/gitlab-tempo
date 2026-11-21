@@ -88,25 +88,80 @@ Each entry can also have a `ServerToken`. Keep tokens in user secrets, for examp
 
 Without this, anyone who can reach the app can use it, and if an instance has a `ServerToken`, they can read reports without any credentials. Turn on sign-in to allow only the people you choose.
 
-**1. Register an OAuth application in GitLab.** Use User settings → Applications, your group → Settings → Applications, or Admin Area → Applications on self-managed. Register it on the same GitLab that `Tempo:Auth:InstanceId` points to:
+### 1. Register an OAuth application in GitLab
 
-| Field | Value |
-|---|---|
-| Redirect URI | `http://localhost:5173/signin-gitlab` for local development, plus `https://<your-host>/signin-gitlab` for production (one per line) |
-| Confidential | Yes |
-| Scopes | `read_api` |
+This gives you the **Application ID** (`ClientId`) and **Secret** (`ClientSecret`).
 
-**2. Give the app its ID and secret.** Never put the secret in `appsettings.json`.
+1. Sign in to the GitLab people will sign in with: gitlab.com, or your self-managed GitLab such as `http://localhost:8929`.
+2. Open one of these:
+   - **User settings → Applications** (`<gitlab-url>/-/user_settings/applications`), owned by your account
+   - **Your group → Settings → Applications**, owned by the group
+   - **Admin Area → Applications** on self-managed, owned by the instance
+3. Click **Add new application** and fill in:
+
+   | Field | Value |
+   |---|---|
+   | Name | `gitlab-tempo` (shown to people when they approve the sign-in) |
+   | Redirect URI | `http://localhost:5173/signin-gitlab` for local development, plus `https://<your-host>/signin-gitlab` for production (one per line) |
+   | Confidential | Checked |
+   | Scopes | `read_api` only |
+
+4. Click **Save application**. GitLab shows:
+   - **Application ID**: this is `Tempo:Auth:ClientId`
+   - **Secret**: this is `Tempo:Auth:ClientSecret`. Copy it now. GitLab won't show it again, though you can use **Renew secret** to get a new one.
+
+### 2. Give the app its ID and secret
+
+Never put the secret in `appsettings.json` or anything else in git.
+
+**Local development:** store them in .NET user secrets. They are saved in your user profile, outside the project folder, so they can't be committed:
 
 ```bash
 cd server/Tempo.Api
 dotnet user-secrets set "Tempo:Auth:ClientId" "<Application ID>"
 dotnet user-secrets set "Tempo:Auth:ClientSecret" "<Secret>"
+
+# Only if people sign in with an instance other than the first one in Tempo:Instances:
+dotnet user-secrets set "Tempo:Auth:InstanceId" "local"
+
+# Check what's set:
+dotnet user-secrets list
 ```
 
-In production, use environment variables: `Tempo__Auth__ClientId`, `Tempo__Auth__ClientSecret`.
+Run these from `server/Tempo.Api`, or the values are saved for another project. The file is at `%APPDATA%\Microsoft\UserSecrets\<UserSecretsId>\secrets.json` on Windows and `~/.microsoft/usersecrets/<UserSecretsId>/secrets.json` on macOS/Linux. The `UserSecretsId` is in `Tempo.Api.csproj`.
 
-**3. Choose who gets in** (in `appsettings.json` or environment variables):
+**Production:** use environment variables, with `__` (two underscores) in place of `:`:
+
+```bash
+Tempo__Auth__ClientId=<Application ID>
+Tempo__Auth__ClientSecret=<Secret>
+Tempo__Auth__InstanceId=local
+```
+
+Restart the app after changing any of these, because settings are only read at startup. To check, open `/api/session`: it should show `"authEnabled": true` and the instance people sign in with.
+
+### 3. Choose who gets in
+
+Add people with `AllowedUsers`, `AllowedGroups`, or both. Someone gets in if they match **either** list.
+
+- **`AllowedUsers`**: GitLab usernames or the email on someone's GitLab account, e.g. `jdoe` or `jdoe@my-company.com`. Case doesn't matter.
+- **`AllowedGroups`**: group full paths, e.g. `my-company` or `my-company/managers`. Direct and inherited members get in.
+
+Both are lists. On the command line and in environment variables, each entry has a number at the end: `:0` for the first, `:1` for the second, and so on. So `Tempo:Auth:AllowedUsers:0 = jdoe` means "the first allowed user is `jdoe`".
+
+```bash
+# User secrets (local development)
+dotnet user-secrets set "Tempo:Auth:AllowedUsers:0" "jdoe"
+dotnet user-secrets set "Tempo:Auth:AllowedUsers:1" "boss@my-company.com"
+dotnet user-secrets set "Tempo:Auth:AllowedGroups:0" "my-company/managers"
+
+# Environment variables (production)
+Tempo__Auth__AllowedUsers__0=jdoe
+Tempo__Auth__AllowedUsers__1=boss@my-company.com
+Tempo__Auth__AllowedGroups__0=my-company/managers
+```
+
+Or in `appsettings.json`. These lists aren't secret, so they can go there:
 
 ```json
 "Tempo": {
@@ -116,6 +171,8 @@ In production, use environment variables: `Tempo__Auth__ClientId`, `Tempo__Auth_
   }
 }
 ```
+
+Someone who isn't on either list sees "doesn't have access" on the sign-in screen after approving in GitLab. Removing someone locks them out within about 2 hours (see below).
 
 | Key | Default | Purpose |
 |---|---|---|
@@ -131,6 +188,14 @@ How it works:
 
 - The app works only with the GitLab people sign in with. Other entries in `Tempo:Instances` are hidden and refused by the API, so there is no instance picker. To use a different GitLab, point `Tempo:Auth:InstanceId` at it and register the OAuth application there.
 - Reports use the person's own GitLab access, so nobody pastes a token and `ServerToken` is not used.
+- **Who sees what** depends on the person's role in the group being reported on:
+
+  | Role in the group | Sees |
+  |---|---|
+  | Owner, Maintainer (direct or from a parent group), or GitLab administrator | Everyone's time |
+  | Developer, Reporter, Guest, or not a member | Only their own time |
+
+  The server leaves other people's entries out of the report before sending it, so they never reach the browser. The role is checked every 5 minutes, so a promotion or demotion in GitLab takes effect within 5 minutes. This limits what gitlab-tempo shows. GitLab itself may still show time logs on issues a person can open.
 - The session is an encrypted, HTTP-only cookie. GitLab access tokens expire every 2 hours and are renewed automatically. Access is checked again at each renewal, so removing someone from the group or list locks them out within about 2 hours.
 - In production, serve the app over **HTTPS**. Behind a reverse proxy that terminates TLS (nginx, Docker, a load balancer), set `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` so the redirect URI uses `https`.
 - The cookie is encrypted with ASP.NET Core Data Protection keys. If the host doesn't keep them between restarts (e.g. some Docker setups), people have to sign in again after each restart.
