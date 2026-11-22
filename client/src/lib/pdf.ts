@@ -106,13 +106,20 @@ export function exportReportPdf(report: WeeklyReport, options: PdfOptions) {
       ]);
 
     if (rows.length) {
-      doc.addPage();
+      // Continue on the same page right after the hours table; only start a new page
+      // when there is no room left for the heading and a few rows.
+      const pageHeight = doc.internal.pageSize.getHeight();
+      y += 18;
+      if (y > pageHeight - 140) {
+        doc.addPage();
+        y = 56;
+      }
       doc.setFont("helvetica", "bold");
       doc.setFontSize(13);
       doc.setTextColor(...INK);
-      doc.text("Issue breakdown", margin, 56);
+      doc.text("Issue breakdown", margin, y);
       autoTable(doc, {
-        startY: 70,
+        startY: y + 14,
         margin: { left: margin, right: margin },
         head: [["Project", "Issue", "Hours"]],
         body: rows,

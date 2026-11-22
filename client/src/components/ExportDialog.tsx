@@ -30,7 +30,7 @@ export function ExportDialog({ report, showEmpty }: { report: WeeklyReport; show
             <input type="checkbox" className="accent-foreground mt-0.5 size-4" checked={includeIssues} onChange={(e) => setIncludeIssues(e.target.checked)} />
             <span>
               <span className="font-medium">Include issue breakdown</span>
-              <span className="text-muted-foreground block">Adds a page listing each person's issues and hours.</span>
+              <span className="text-muted-foreground block">Adds a table under the hours listing each person's issues and hours.</span>
             </span>
           </label>
           <label className="flex items-start gap-3">
