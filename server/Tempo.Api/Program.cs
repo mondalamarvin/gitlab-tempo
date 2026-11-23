@@ -124,7 +124,7 @@ static async Task<string?> ResolveTokenAsync(HttpContext http, GitLabInstanceOpt
     return string.IsNullOrWhiteSpace(instance.ServerToken) ? null : instance.ServerToken;
 }
 
-// With sign-in and Tempo:Auth:ReportScope = OwnTime (the default), Maintainers and Owners of the group
+// With sign-in and Tempo:Auth:ReportScope = Individual (the default), Maintainers and Owners of the group
 // (and GitLab admins) see everyone's time; anyone else sees only their own. With WholeGroup, everyone
 // sees everyone's. Returns the username to limit the report to, or null for the whole group.
 static async Task<string?> OwnTimeOnlyUsernameAsync(

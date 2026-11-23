@@ -251,10 +251,28 @@ public class SignInFlowTests
     }
 
     [Theory]
+    [InlineData(30, false)] // Developer: own time only
+    [InlineData(40, true)]  // Maintainer: still the whole group
+    public async Task With_individual_scope_only_maintainers_and_above_see_the_whole_group(int accessLevel, bool seesWholeGroup)
+    {
+        var (app, gitLab) = Create(configure: b => b.UseSetting("Tempo:Auth:ReportScope", "Individual"));
+        using var _ = app;
+        gitLab.TeamAccessLevel = accessLevel;
+        var http = app.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        await SignInAsync(http);
+
+        var report = await ReportAsync(http);
+
+        Assert.Equal(!seesWholeGroup, report.GetProperty("ownTimeOnly").GetBoolean());
+        Assert.Equal(seesWholeGroup ? ["alice", "bob", "carol"] : ["alice"], Usernames(report));
+    }
+
+    [Theory]
     [InlineData("Everyone")]
+    [InlineData("OwnTime")] // old name
     [InlineData("7")]
     [InlineData("1")] // would bind to WholeGroup
-    [InlineData("OwnTime,WholeGroup")] // parsed as flags: 0|1 = WholeGroup
+    [InlineData("Individual,WholeGroup")] // parsed as flags: 0|1 = WholeGroup
     public void An_invalid_report_scope_stops_the_app_at_startup(string value)
     {
         var (app, _) = Create(configure: b => b.UseSetting("Tempo:Auth:ReportScope", value));
@@ -262,7 +280,7 @@ public class SignInFlowTests
 
         var ex = Assert.ThrowsAny<Exception>(() => app.CreateClient());
 
-        Assert.Contains("Tempo:Auth:ReportScope must be OwnTime or WholeGroup", ex.ToString());
+        Assert.Contains("Tempo:Auth:ReportScope must be Individual or WholeGroup", ex.ToString());
     }
 
     [Fact]
