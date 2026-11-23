@@ -20,10 +20,25 @@ public static class GitLabSignIn
     private const string RedirectUriItem = "tempo.redirect_uri";
     private static readonly TimeSpan RefreshMargin = TimeSpan.FromMinutes(2);
 
+    private const string ReportScopeKey = "Tempo:Auth:ReportScope";
+
+    /// <summary>Binds the Tempo settings, stopping the app on a ReportScope it doesn't know.</summary>
+    private static TempoOptions BindOptions(IConfiguration configuration)
+    {
+        // Check the raw text: the binder also takes numbers ("1") and flag lists ("Individual,WholeGroup"),
+        // which would quietly widen who sees what.
+        var raw = configuration[ReportScopeKey];
+        if (raw is not null && !Enum.GetNames<ReportScope>().Contains(raw.Trim(), StringComparer.OrdinalIgnoreCase))
+            throw new InvalidOperationException(
+                $"{ReportScopeKey} must be {nameof(ReportScope.Individual)} or {nameof(ReportScope.WholeGroup)} (got '{raw}').");
+
+        return configuration.GetSection(TempoOptions.SectionName).Get<TempoOptions>() ?? new();
+    }
+
     /// <summary>Registers sign-in when Tempo:Auth:ClientId is set. Returns whether it is on.</summary>
     public static bool AddGitLabSignIn(this WebApplicationBuilder builder)
     {
-        var options = builder.Configuration.GetSection(TempoOptions.SectionName).Get<TempoOptions>() ?? new();
+        var options = BindOptions(builder.Configuration);
         var auth = options.Auth;
         if (!auth.Enabled) return false;
 

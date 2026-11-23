@@ -93,7 +93,7 @@ public class SignInFlowTests
         public override DateTimeOffset GetUtcNow() => base.GetUtcNow() + Offset;
     }
 
-    private static (WebApplicationFactory<Program> App, FakeGitLab GitLab) Create(TestClock? clock = null)
+    private static (WebApplicationFactory<Program> App, FakeGitLab GitLab) Create(TestClock? clock = null, Action<IWebHostBuilder>? configure = null)
     {
         var gitLab = new FakeGitLab();
         var app = new WebApplicationFactory<Program>().WithWebHostBuilder(b =>
@@ -109,6 +109,7 @@ public class SignInFlowTests
             b.UseSetting("Tempo:Auth:ClientId", "app-id");
             b.UseSetting("Tempo:Auth:ClientSecret", "app-secret");
             b.UseSetting("Tempo:Auth:AllowedGroups:0", "team");
+            configure?.Invoke(b);
             b.ConfigureServices(s =>
             {
                 s.PostConfigure<OAuthOptions>(GitLabSignIn.Scheme, o => o.Backchannel = new HttpClient(gitLab, disposeHandler: false));
@@ -228,6 +229,58 @@ public class SignInFlowTests
         Assert.False(report.GetProperty("ownTimeOnly").GetBoolean());
         Assert.Equal(["alice", "bob", "carol"], Usernames(report));
         Assert.Equal(5, report.GetProperty("team").GetProperty("totalHours").GetDouble());
+    }
+
+    [Theory]
+    [InlineData(10)] // Guest
+    [InlineData(30)] // Developer
+    public async Task With_whole_group_scope_everyone_sees_the_whole_group(int accessLevel)
+    {
+        // Lowercase on purpose: the value is matched without regard to case.
+        var (app, gitLab) = Create(configure: b => b.UseSetting("Tempo:Auth:ReportScope", "wholegroup"));
+        using var _ = app;
+        gitLab.TeamAccessLevel = accessLevel;
+        var http = app.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        await SignInAsync(http);
+
+        var report = await ReportAsync(http);
+
+        Assert.False(report.GetProperty("ownTimeOnly").GetBoolean());
+        Assert.Equal(["alice", "bob", "carol"], Usernames(report));
+        Assert.Equal(5, report.GetProperty("team").GetProperty("totalHours").GetDouble());
+    }
+
+    [Theory]
+    [InlineData(30, false)] // Developer: own time only
+    [InlineData(40, true)]  // Maintainer: still the whole group
+    public async Task With_individual_scope_only_maintainers_and_above_see_the_whole_group(int accessLevel, bool seesWholeGroup)
+    {
+        var (app, gitLab) = Create(configure: b => b.UseSetting("Tempo:Auth:ReportScope", "Individual"));
+        using var _ = app;
+        gitLab.TeamAccessLevel = accessLevel;
+        var http = app.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        await SignInAsync(http);
+
+        var report = await ReportAsync(http);
+
+        Assert.Equal(!seesWholeGroup, report.GetProperty("ownTimeOnly").GetBoolean());
+        Assert.Equal(seesWholeGroup ? ["alice", "bob", "carol"] : ["alice"], Usernames(report));
+    }
+
+    [Theory]
+    [InlineData("Everyone")]
+    [InlineData("OwnTime")] // old name
+    [InlineData("7")]
+    [InlineData("1")] // would bind to WholeGroup
+    [InlineData("Individual,WholeGroup")] // parsed as flags: 0|1 = WholeGroup
+    public void An_invalid_report_scope_stops_the_app_at_startup(string value)
+    {
+        var (app, _) = Create(configure: b => b.UseSetting("Tempo:Auth:ReportScope", value));
+        using var __ = app;
+
+        var ex = Assert.ThrowsAny<Exception>(() => app.CreateClient());
+
+        Assert.Contains("Tempo:Auth:ReportScope must be Individual or WholeGroup", ex.ToString());
     }
 
     [Fact]
