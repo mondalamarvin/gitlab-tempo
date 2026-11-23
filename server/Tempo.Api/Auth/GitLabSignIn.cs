@@ -21,9 +21,33 @@ public static class GitLabSignIn
     private static readonly TimeSpan RefreshMargin = TimeSpan.FromMinutes(2);
 
     /// <summary>Registers sign-in when Tempo:Auth:ClientId is set. Returns whether it is on.</summary>
+    private const string ReportScopeKey = "Tempo:Auth:ReportScope";
+
+    /// <summary>Binds the Tempo settings, stopping the app on a ReportScope it doesn't know.</summary>
+    private static TempoOptions BindOptions(IConfiguration configuration)
+    {
+        var raw = configuration[ReportScopeKey];
+        string Invalid() => $"{ReportScopeKey} must be {nameof(ReportScope.OwnTime)} or {nameof(ReportScope.WholeGroup)} (got '{raw}').";
+
+        TempoOptions options;
+        try
+        {
+            options = configuration.GetSection(TempoOptions.SectionName).Get<TempoOptions>() ?? new();
+        }
+        catch (InvalidOperationException ex) when (ex.Message.Contains(ReportScopeKey, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(Invalid(), ex);
+        }
+
+        // The binder accepts any number for an enum, so "7" would otherwise slip through.
+        if (!Enum.IsDefined(options.Auth.ReportScope))
+            throw new InvalidOperationException(Invalid());
+        return options;
+    }
+
     public static bool AddGitLabSignIn(this WebApplicationBuilder builder)
     {
-        var options = builder.Configuration.GetSection(TempoOptions.SectionName).Get<TempoOptions>() ?? new();
+        var options = BindOptions(builder.Configuration);
         var auth = options.Auth;
         if (!auth.Enabled) return false;
 
