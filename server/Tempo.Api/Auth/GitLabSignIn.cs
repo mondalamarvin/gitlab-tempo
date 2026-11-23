@@ -20,31 +20,22 @@ public static class GitLabSignIn
     private const string RedirectUriItem = "tempo.redirect_uri";
     private static readonly TimeSpan RefreshMargin = TimeSpan.FromMinutes(2);
 
-    /// <summary>Registers sign-in when Tempo:Auth:ClientId is set. Returns whether it is on.</summary>
     private const string ReportScopeKey = "Tempo:Auth:ReportScope";
 
     /// <summary>Binds the Tempo settings, stopping the app on a ReportScope it doesn't know.</summary>
     private static TempoOptions BindOptions(IConfiguration configuration)
     {
+        // Check the raw text: the binder also takes numbers ("1") and flag lists ("OwnTime,WholeGroup"),
+        // which would quietly widen who sees what.
         var raw = configuration[ReportScopeKey];
-        string Invalid() => $"{ReportScopeKey} must be {nameof(ReportScope.OwnTime)} or {nameof(ReportScope.WholeGroup)} (got '{raw}').";
+        if (raw is not null && !Enum.GetNames<ReportScope>().Contains(raw.Trim(), StringComparer.OrdinalIgnoreCase))
+            throw new InvalidOperationException(
+                $"{ReportScopeKey} must be {nameof(ReportScope.OwnTime)} or {nameof(ReportScope.WholeGroup)} (got '{raw}').");
 
-        TempoOptions options;
-        try
-        {
-            options = configuration.GetSection(TempoOptions.SectionName).Get<TempoOptions>() ?? new();
-        }
-        catch (InvalidOperationException ex) when (ex.Message.Contains(ReportScopeKey, StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidOperationException(Invalid(), ex);
-        }
-
-        // The binder accepts any number for an enum, so "7" would otherwise slip through.
-        if (!Enum.IsDefined(options.Auth.ReportScope))
-            throw new InvalidOperationException(Invalid());
-        return options;
+        return configuration.GetSection(TempoOptions.SectionName).Get<TempoOptions>() ?? new();
     }
 
+    /// <summary>Registers sign-in when Tempo:Auth:ClientId is set. Returns whether it is on.</summary>
     public static bool AddGitLabSignIn(this WebApplicationBuilder builder)
     {
         var options = BindOptions(builder.Configuration);
