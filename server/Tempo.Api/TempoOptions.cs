@@ -114,10 +114,10 @@ public sealed class AuthOptions
     public List<string> AllowedUsers { get; set; } = [];
 
     /// <summary>
-    /// Whose time signed-in people see. <see cref="ReportScope.OwnTime"/> (default): only Maintainers,
+    /// Whose time signed-in people see. <see cref="ReportScope.Individual"/> (default): only Maintainers,
     /// Owners and GitLab admins see everyone's; <see cref="ReportScope.WholeGroup"/>: everyone does.
     /// </summary>
-    public ReportScope ReportScope { get; set; } = ReportScope.OwnTime;
+    public ReportScope ReportScope { get; set; } = ReportScope.Individual;
 
     /// <summary>How long a session lasts without activity.</summary>
     public double SessionHours { get; set; } = 8;
@@ -132,7 +132,7 @@ public sealed class AuthOptions
 public enum ReportScope
 {
     /// <summary>Maintainers, Owners and GitLab admins see everyone's time; others see only their own.</summary>
-    OwnTime,
+    Individual,
 
     /// <summary>Everyone who signs in sees the whole group's time.</summary>
     WholeGroup,

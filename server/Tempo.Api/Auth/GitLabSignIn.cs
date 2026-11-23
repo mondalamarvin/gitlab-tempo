@@ -25,12 +25,12 @@ public static class GitLabSignIn
     /// <summary>Binds the Tempo settings, stopping the app on a ReportScope it doesn't know.</summary>
     private static TempoOptions BindOptions(IConfiguration configuration)
     {
-        // Check the raw text: the binder also takes numbers ("1") and flag lists ("OwnTime,WholeGroup"),
+        // Check the raw text: the binder also takes numbers ("1") and flag lists ("Individual,WholeGroup"),
         // which would quietly widen who sees what.
         var raw = configuration[ReportScopeKey];
         if (raw is not null && !Enum.GetNames<ReportScope>().Contains(raw.Trim(), StringComparer.OrdinalIgnoreCase))
             throw new InvalidOperationException(
-                $"{ReportScopeKey} must be {nameof(ReportScope.OwnTime)} or {nameof(ReportScope.WholeGroup)} (got '{raw}').");
+                $"{ReportScopeKey} must be {nameof(ReportScope.Individual)} or {nameof(ReportScope.WholeGroup)} (got '{raw}').");
 
         return configuration.GetSection(TempoOptions.SectionName).Get<TempoOptions>() ?? new();
     }
