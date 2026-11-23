@@ -253,6 +253,8 @@ public class SignInFlowTests
     [Theory]
     [InlineData("Everyone")]
     [InlineData("7")]
+    [InlineData("1")] // would bind to WholeGroup
+    [InlineData("OwnTime,WholeGroup")] // parsed as flags: 0|1 = WholeGroup
     public void An_invalid_report_scope_stops_the_app_at_startup(string value)
     {
         var (app, _) = Create(configure: b => b.UseSetting("Tempo:Auth:ReportScope", value));
@@ -260,7 +262,7 @@ public class SignInFlowTests
 
         var ex = Assert.ThrowsAny<Exception>(() => app.CreateClient());
 
-        Assert.Contains("Tempo:Auth:ReportScope", ex.ToString());
+        Assert.Contains("Tempo:Auth:ReportScope must be OwnTime or WholeGroup", ex.ToString());
     }
 
     [Fact]
