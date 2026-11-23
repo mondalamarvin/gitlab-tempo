@@ -113,6 +113,12 @@ public sealed class AuthOptions
     /// <summary>Usernames or emails that may sign in, in addition to the group members.</summary>
     public List<string> AllowedUsers { get; set; } = [];
 
+    /// <summary>
+    /// Whose time signed-in people see. <see cref="ReportScope.OwnTime"/> (default): only Maintainers,
+    /// Owners and GitLab admins see everyone's; <see cref="ReportScope.WholeGroup"/>: everyone does.
+    /// </summary>
+    public ReportScope ReportScope { get; set; } = ReportScope.OwnTime;
+
     /// <summary>How long a session lasts without activity.</summary>
     public double SessionHours { get; set; } = 8;
 
@@ -120,6 +126,16 @@ public sealed class AuthOptions
 
     /// <summary>True when anyone who can sign in to the GitLab instance gets in.</summary>
     public bool AllowsEveryone => AllowedGroups.All(string.IsNullOrWhiteSpace) && AllowedUsers.All(string.IsNullOrWhiteSpace);
+}
+
+/// <summary>Whose time a signed-in person sees in a report (Tempo:Auth:ReportScope).</summary>
+public enum ReportScope
+{
+    /// <summary>Maintainers, Owners and GitLab admins see everyone's time; others see only their own.</summary>
+    OwnTime,
+
+    /// <summary>Everyone who signs in sees the whole group's time.</summary>
+    WholeGroup,
 }
 
 /// <summary>One GitLab instance the app can read from.</summary>
