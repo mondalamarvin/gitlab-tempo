@@ -181,7 +181,7 @@ Someone who isn't on either list sees "doesn't have access" on the sign-in scree
 | `Tempo:Auth:AllowedGroups` | (empty) | Members of any of these groups get in (direct or inherited members) |
 | `Tempo:Auth:AllowedUsers` | (empty) | Usernames or emails that get in as well |
 | `Tempo:Auth:SessionHours` | `8` | Sign-in lasts this long without activity |
-| `Tempo:Auth:ReportScope` | `OwnTime` | Whose time people see. `OwnTime`: only Owners, Maintainers and GitLab admins see everyone's time, others see only their own. `WholeGroup`: everyone who signs in sees everyone's time |
+| `Tempo:Auth:ReportScope` | `Individual` | Whose time people see. `Individual`: only Owners, Maintainers and GitLab admins see everyone's time, others see only their own. `WholeGroup`: everyone who signs in sees everyone's time |
 
 If both lists are empty, **anyone with an account on that GitLab** gets in. That's fine for a private self-managed GitLab, but not for gitlab.com.
 
@@ -189,7 +189,7 @@ How it works:
 
 - The app works only with the GitLab people sign in with. Other entries in `Tempo:Instances` are hidden and refused by the API, so there is no instance picker. To use a different GitLab, point `Tempo:Auth:InstanceId` at it and register the OAuth application there.
 - Reports use the person's own GitLab access, so nobody pastes a token and `ServerToken` is not used.
-- **Who sees what** is set by `Tempo:Auth:ReportScope`. With `WholeGroup` (e.g. `Tempo__Auth__ReportScope=WholeGroup`), everyone who signs in sees everyone's time. With `OwnTime` (the default), it depends on the person's role in the group being reported on:
+- **Who sees what** is set by `Tempo:Auth:ReportScope`. With `WholeGroup` (e.g. `Tempo__Auth__ReportScope=WholeGroup`), everyone who signs in sees everyone's time. With `Individual` (the default), it depends on the person's role in the group being reported on:
 
   | Role in the group | Sees |
   |---|---|
